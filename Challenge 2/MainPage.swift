@@ -1,62 +1,13 @@
 import SwiftUI
 
-// JournalEntry model to represent each entry
-struct JournalEntry: Identifiable {
-    let id = UUID()
-    var title: String
-    var date: String
-    var content: String
-    var isBookmarked: Bool = false // Added to track the bookmark status
-}
-
 struct MainPage: View {
-    @State private var searchText = ""
-    @State private var filterOption: FilterOption = .all // New filter state
-    @State private var journalEntries: [JournalEntry] = [
-    ]
-    @State private var showAddEntry = false
-    @State private var isEditing = false
-    @State private var selectedEntry: JournalEntry? = nil
-
-    // Filter options
-    enum FilterOption {
-        case all, bookmarked, recent
-    }
-
-    // Filtered journal entries based on the search query and filter option
-    var filteredEntries: [JournalEntry] {
-        var filtered = journalEntries
-        
-        // Apply filter based on filterOption
-        switch filterOption {
-        case .all:
-            break
-        case .bookmarked:
-            filtered = filtered.filter { $0.isBookmarked }
-        case .recent:
-            filtered = filtered.sorted { $0.date > $1.date }
-        }
-        
-        // Apply search filter
-        if !searchText.isEmpty {
-            filtered = filtered.filter {
-                $0.title.localizedCaseInsensitiveContains(searchText) ||
-                $0.date.localizedCaseInsensitiveContains(searchText) ||
-                $0.content.localizedCaseInsensitiveContains(searchText)
-            }
-        }
-        
-        return filtered
-    }
+    @StateObject private var viewModel = MainPageViewModel()
 
     var body: some View {
         NavigationView {
             ZStack {
-                Color.black
-                    .ignoresSafeArea()
-                
+                Color.black.ignoresSafeArea()
                 VStack(spacing: 16) {
-                    // Custom Navigation Bar
                     HStack {
                         Text("Journal")
                             .foregroundColor(.white)
@@ -65,116 +16,138 @@ struct MainPage: View {
                         
                         Spacer()
                         
-                        // Filter menu button
                         Menu {
-                            Button("All Entries", action: { filterOption = .all })
-                            Button("Bookmark", action: { filterOption = .bookmarked })
-                            Button("Recent", action: { filterOption = .recent })
+                            Button("All Entries", action: { viewModel.filterOption = .all })
+                            Button("Bookmark", action: { viewModel.filterOption = .bookmarked })
+                            Button("Recent", action: { viewModel.filterOption = .recent })
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease")
                                 .foregroundColor(.tx1)
                                 .font(.system(size: 24))
                         }
                         
-                        // Plus icon button to add new journal entry
                         Button(action: {
-                            showAddEntry.toggle() // Show the add entry sheet
+                            viewModel.isEditing = false
+                            viewModel.selectedEntry = nil
+                            viewModel.showAddEntry.toggle()
                         }) {
                             Image(systemName: "plus")
                                 .foregroundColor(.tx1)
                                 .font(.system(size: 24))
                         }
-                        .sheet(isPresented: $showAddEntry) {
-                            AddJournalEntryView(journalEntries: $journalEntries, isEditing: $isEditing, selectedEntry: $selectedEntry)
+                        .sheet(isPresented: $viewModel.showAddEntry) {
+                            AddJournalEntryView(viewModel: viewModel)
                         }
                     }
                     .padding()
+
+                    SearchBarView(searchText: $viewModel.searchText)
                     
-                    // Search bar with embedded mic icon
-                    // Search bar with embedded mic icon
-                    ZStack {
-                        // Background with rounded rectangle
-                        RoundedRectangle(cornerRadius: 15)
-                            .fill(Color.gray.opacity(0.2)) // Background color
-                            .frame(width: 370, height: 50)
-
-                        HStack {
-                            // Magnifying glass icon and text field
-                            Image(systemName: "magnifyingglass")
-                                .foregroundColor(.gray) // Set the color to gray
-                                .padding(.leading, 10.0)
-
-                            TextField("Search", text: $searchText)
-                                .foregroundColor(.white) // Change text color to gray
-                                .padding(10) // Padding inside the text field
-                                .background(Color.clear) // Use clear background to show the rounded rectangle
-
-                            // Mic icon inside the search bar
-                            Button(action: {
-                                // Add voice search action here if needed
-                            }) {
-                                Image(systemName: "mic")
-                                    .foregroundColor(.gray) // Set the color to gray
-                                    .padding(.trailing, 10)
-                            }
-                        }
-                        .padding(.horizontal) // Add horizontal padding for spacing
+                    if viewModel.journalEntries.isEmpty {
+                        EmptyStateView()
+                    } else {
+                        JournalEntriesListView(entries: viewModel.filteredEntries, viewModel: viewModel)
                     }
-
-                   // have the word search and the magnifyingglass and the mic the same color (gray) and have them all be inside a rounded rectangle
-                    // Maintain consistent height
-
-
-                    // Journal Entries in a List (enables swipe actions)
-                    List {
-                        ForEach(filteredEntries) { entry in
-                            JournalRow(entry: entry, toggleBookmark: {
-                                if let index = journalEntries.firstIndex(where: { $0.id == entry.id }) {
-                                    journalEntries[index].isBookmarked.toggle() // Toggle bookmark status
-                                }
-                            })
-                            .listRowInsets(EdgeInsets()) // Remove default row padding
-                            .listRowBackground(Color.clear) // Makes the row background transparent
-                            .swipeActions(edge: .leading) {
-                                Button {
-                                    selectedEntry = entry
-                                    isEditing = true
-                                    showAddEntry.toggle()
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(.tx1)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    deleteEntry(entry: entry)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
-                    .listStyle(PlainListStyle())
-                    .background(Color.black) // Ensure the List background matches the main view
-
                 }
             }
         }
         .accentColor(.white)
-        .sheet(isPresented: $showAddEntry) {
-            AddJournalEntryView(journalEntries: $journalEntries, isEditing: $isEditing, selectedEntry: $selectedEntry)
-        }
     }
-    
-    // Function to delete entry
-    func deleteEntry(entry: JournalEntry) {
-        if let index = journalEntries.firstIndex(where: { $0.id == entry.id }) {
-            journalEntries.remove(at: index)
+}
+
+struct SearchBarView: View {
+    @Binding var searchText: String
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 15)
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: 370, height: 50)
+
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.gray)
+                    .padding(.leading, 10.0)
+
+                TextField("Search", text: $searchText)
+                    .foregroundColor(.white)
+                    .padding(10)
+                    .background(Color.clear)
+
+                Button(action: {}) {
+                    Image(systemName: "mic")
+                        .foregroundColor(.gray)
+                        .padding(.trailing, 10)
+                }
+            }
+            .padding(.horizontal)
         }
     }
 }
 
-// MARK: - JournalRow
+struct EmptyStateView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image("NoteBook")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 100, height: 100)
+
+            Text("Begin Your Journal")
+                .foregroundColor(.tx1)
+                .font(.system(size: 24))
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("Craft your personal diary, tap the plus icon to begin")
+                .font(.system(size: 18))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .padding(.top, -55)
+                .padding(.horizontal, 40)
+                .frame(width: 350, height: 90)
+
+            Spacer()
+        }
+        .padding(.top, -60)
+    }
+}
+
+struct JournalEntriesListView: View {
+    var entries: [JournalEntry]
+    var viewModel: MainPageViewModel
+
+    var body: some View {
+        List {
+            ForEach(entries) { entry in
+                JournalRow(entry: entry) {
+                    viewModel.toggleBookmark(for: entry)
+                }
+                .listRowBackground(Color.clear)
+                .swipeActions(edge: .leading) {
+                    Button {
+                        viewModel.selectedEntry = entry
+                        viewModel.isEditing = true
+                        viewModel.showAddEntry.toggle()
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .tint(.blue)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        viewModel.deleteEntry(entry: entry)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
+        }
+        .listStyle(PlainListStyle())
+    }
+}
+
 struct JournalRow: View {
     var entry: JournalEntry
     var toggleBookmark: () -> Void
@@ -191,154 +164,19 @@ struct JournalRow: View {
                 Text(entry.content)
                     .font(.body)
                     .foregroundColor(.white)
-                    .lineLimit(2) // Limit to 2 lines for better UI
+                    .lineLimit(2)
             }
             Spacer()
             Button(action: toggleBookmark) {
                 Image(systemName: entry.isBookmarked ? "bookmark.fill" : "bookmark")
-                    .foregroundColor(entry.isBookmarked ? .tx1 : .tx1)
+                    .foregroundColor(.tx1)
             }
-            .buttonStyle(PlainButtonStyle()) // Make the button plain
+            .buttonStyle(PlainButtonStyle())
         }
-        .padding() // Increased padding for more space
-        .background(Color.gray.opacity(0.2)) // Slightly darker background
-        .cornerRadius(15) // Adjust corner radius for rounded effect
-        .frame(width: 370)
-        .shadow(color: .black.opacity(0.5), radius: 5, x: 0, y: 5) // Optional shadow for depth
-        .padding(.vertical, 8) // Add vertical padding to create space between rows
-        .padding(.horizontal) // Add horizontal padding for spacing
-    }
-}
-
-// MARK: - AddJournalEntryView
-import SwiftUI
-
-struct AddJournalEntryView: View {
-    @Environment(\.dismiss) var dismiss
-    @Binding var journalEntries: [JournalEntry]
-    @Binding var isEditing: Bool
-    @Binding var selectedEntry: JournalEntry?
-
-    @State private var title = ""
-    @State private var content = ""
-    @State private var date = Date()
-    
-    // Focus state management
-    @FocusState private var titleIsFocused: Bool
-    @FocusState private var contentIsFocused: Bool
-
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 16) {
-                // Title input
-                TextField("Title", text: $title)
-                    .focused($titleIsFocused) // Attach focus state
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.white)
-                    //.padding()
-                    .background(Color.BG) // Use background color
-                    .cornerRadius(8)
-                    .onTapGesture {
-                        titleIsFocused = true // Focus when tapped
-                    }
-
-                // Date display on the left
-                HStack {
-                    Text(dateFormatted(date))
-                        .foregroundColor(.tx1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                // Journal content input
-                TextField("Type your Journal...", text: $content)
-                    .focused($contentIsFocused) // Attach focus state
-                    .foregroundColor(.white)
-                    .font(.body)
-                    //.padding()
-                    .background(Color.BG) // Use background color
-                    .cornerRadius(8)
-                    .onTapGesture {
-                        contentIsFocused = true // Focus when tapped
-                    }
-
-                Spacer()
-            }
-            .padding()
-            .background(Color.BG)
-            .navigationBarItems(
-                leading: Button("Cancel") {
-                    dismiss()
-                }
-                .foregroundColor(.tx1),
-                trailing: Button("Save") {
-                    saveEntry()
-                    dismiss()
-                }
-                .foregroundColor(.tx1)
-            )
-            .onAppear {
-                if isEditing, let entry = selectedEntry {
-                    title = entry.title
-                    content = entry.content
-                    date = dateFromString(entry.date) ?? Date()
-                }
-            }
-            .onDisappear {
-                // Dismiss keyboard when the view disappears
-                titleIsFocused = false
-                contentIsFocused = false
-            }
-        }
-        .background(Color.black) // Ensure navigation view background is black
-    }
-
-    private func saveEntry() {
-        if isEditing, let entry = selectedEntry, let index = journalEntries.firstIndex(where: { $0.id == entry.id }) {
-            journalEntries[index].title = title
-            journalEntries[index].content = content
-            journalEntries[index].date = dateFormatted(date)
-        } else {
-            let newEntry = JournalEntry(title: title, date: dateFormatted(date), content: content)
-            journalEntries.append(newEntry)
-        }
-    }
-
-    // Helper function to format date as "dd/MM/yyyy"
-    func dateFormatted(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd/MM/yyyy"
-        return formatter.string(from: date)
-    }
-
-    // Helper function to parse date from string
-    func dateFromString(_ dateString: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd/MM/yyyy"
-        return formatter.date(from: dateString)
-    }
-}
-
-// MARK: - Placeholder Modifier
-struct PlaceholderModifier: ViewModifier {
-    var showPlaceholder: Bool
-    var placeholder: String
-
-    func body(content: Content) -> some View {
-        ZStack(alignment: .leading) {
-            content
-                .opacity(showPlaceholder ? 0 : 1)
-            if showPlaceholder {
-                Text(placeholder)
-                    .foregroundColor(.gray)
-                    .padding(.leading, 5) // Add some padding
-            }
-        }
-    }
-}
-
-extension View {
-    func placeholder(when shouldShow: Bool, placeholder: String) -> some View {
-        self.modifier(PlaceholderModifier(showPlaceholder: shouldShow, placeholder: placeholder))
+        .padding()
+        .background(Color.gray.opacity(0.2))
+        .cornerRadius(15)
+        .shadow(color: .black.opacity(0.5), radius: 5, x: 0, y: 5)
     }
 }
 
